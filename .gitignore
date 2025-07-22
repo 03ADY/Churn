@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Streamlit
+.streamlit/
+*.streamlit/
+
+# Machine Learning
+*.joblib
+*.pkl
+*.h5
+*.tf
+*.onnx
+*.pt
+*.pth
+*.bin
+*.model
+*.json # If you were saving API test results like in ChurnAI, you might want to ignore these
+
+# Data
+*.csv # If you have large local datasets you don't want to commit
+*.xlsx
+*.parquet
+
+# Logs
+*.log
+
+# IDEs
+.idea/
+.vscode/
+.DS_Store
