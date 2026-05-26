@@ -13,12 +13,13 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.utils.class_weight import compute_class_weight
 
-from churn_dual.features import prepare_churn_df
+from churn_dual.features import expected_columns_from_preprocessor, prepare_churn_df
 
 MODEL_DIR = Path(__file__).resolve().parent.parent / "models"
 RF_PATH = MODEL_DIR / "rf_pipeline.joblib"
 NN_PATH = MODEL_DIR / "nn_mlp.joblib"
 PREP_PATH = MODEL_DIR / "preprocessor.joblib"
+FEATURES_PATH = MODEL_DIR / "feature_columns.json"
 
 
 def nn_predict_proba(nn: MLPClassifier, X: np.ndarray) -> np.ndarray:
@@ -34,7 +35,11 @@ def train_dual(df: pd.DataFrame, *, use_cache: bool = True) -> dict | None:
         rf = joblib.load(RF_PATH)
         nn = joblib.load(NN_PATH)
         prep = joblib.load(PREP_PATH)
-        return _pack(df, rf, nn, prep, cached=True)
+        expected = _load_feature_columns(prep)
+        current = df.drop("Exited", axis=1).columns.tolist()
+        if set(expected) == set(current):
+            return _pack(df, rf, nn, prep, cached=True, feature_cols=expected)
+        # Schema changed (e.g. after feature prep update) — retrain below
 
     if len(df) < 50 or df["Exited"].nunique() < 2:
         return None
@@ -86,24 +91,37 @@ def train_dual(df: pd.DataFrame, *, use_cache: bool = True) -> dict | None:
     nn.fit(Xtr, y_train)
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    feature_cols = X_train.columns.tolist()
     joblib.dump(rf_best, RF_PATH)
     joblib.dump(fitted_pre, PREP_PATH)
     joblib.dump(nn, NN_PATH)
-    return _pack(df, rf_best, nn, fitted_pre, cached=False, X_test=X_test, y_test=y_test, X_train=X_train)
+    FEATURES_PATH.write_text(__import__("json").dumps(feature_cols), encoding="utf-8")
+    return _pack(
+        df, rf_best, nn, fitted_pre, cached=False,
+        X_test=X_test, y_test=y_test, X_train=X_train, feature_cols=feature_cols,
+    )
 
 
-def _pack(df, rf, nn, pre, cached, X_test=None, y_test=None, X_train=None):
+def _load_feature_columns(pre) -> list[str]:
+    if FEATURES_PATH.exists():
+        return __import__("json").loads(FEATURES_PATH.read_text(encoding="utf-8"))
+    return expected_columns_from_preprocessor(pre)
+
+
+def _pack(df, rf, nn, pre, cached, X_test=None, y_test=None, X_train=None, feature_cols=None):
     if cached:
         X = df.drop("Exited", axis=1)
         y = df["Exited"]
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42,
         )
+    cols = feature_cols or X_train.columns.tolist()
+    X_test = X_test.reindex(columns=cols, fill_value=0)
     return {
         "rf": rf,
         "nn": nn,
         "pre": pre,
         "X_test": X_test,
         "y_test": y_test,
-        "X_train_cols": X_train.columns.tolist(),
+        "X_train_cols": cols,
     }

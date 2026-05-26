@@ -1,6 +1,7 @@
 models/*
 !models/.gitkeep
 !models/*.joblib
+!models/feature_columns.json
 __pycache__/
 .venv/
 venv/

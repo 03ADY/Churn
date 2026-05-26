@@ -6,7 +6,7 @@ import streamlit as st
 from sklearn.metrics import f1_score, roc_auc_score
 
 from churn_dual.data import load_data
-from churn_dual.features import LIVE_FEATURE_DEFAULTS, prepare_churn_df
+from churn_dual.features import LIVE_FEATURE_DEFAULTS, align_features, prepare_churn_df
 from churn_dual.model import nn_predict_proba, train_dual
 
 st.set_page_config(page_title="ChurnGuard Enterprise", page_icon="🛡️", layout="wide")
@@ -52,7 +52,8 @@ if not art:
     st.stop()
 
 rf, nn, pre = art["rf"], art["nn"], art["pre"]
-Xt, yt = art["X_test"], art["y_test"]
+Xt = align_features(art["X_test"], art["X_train_cols"])
+yt = art["y_test"]
 Xtp = pre.transform(Xt)
 
 rf_proba = rf.predict_proba(Xt)[:, 1]
