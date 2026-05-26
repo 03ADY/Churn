@@ -2,12 +2,22 @@
 
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 from sklearn.metrics import confusion_matrix, f1_score, roc_auc_score
 
 from churn_dual.cloud import is_streamlit_cloud
 from churn_dual.data import load_data
+from churn_dual.explain import (
+    batch_export_help,
+    compare_models,
+    confusion_narrative,
+    glossary_markdown,
+    interpret_agreement,
+    interpret_auc,
+    interpret_churn_rate,
+    interpret_f1,
+    interpret_live_risk,
+)
 from churn_dual.features import DEMO_PROFILES, LIVE_FEATURE_DEFAULTS, align_features, prepare_churn_df
 from churn_dual.model import nn_predict_proba, train_dual
 
@@ -16,7 +26,7 @@ st.set_page_config(page_title="ChurnGuard Enterprise", page_icon="🛡️", layo
 st.markdown("""
 <div style="background:linear-gradient(135deg,#7c3aed,#db2777);padding:1.5rem 2rem;border-radius:14px;color:white;">
 <h1 style="margin:0;">🛡️ ChurnGuard Enterprise</h1>
-<p style="margin:0.4rem 0 0;">Random Forest + Neural Net · Model comparison · Live & batch scoring</p>
+<p style="margin:0.4rem 0 0;">Random Forest + Neural Net · Explained metrics · Live & batch scoring</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -28,6 +38,8 @@ with st.sidebar:
     if st.button("Retrain", use_container_width=True):
         st.cache_resource.clear()
         st.rerun()
+    with st.expander("📖 Metric glossary"):
+        st.markdown(glossary_markdown())
 
 try:
     df = prepare_churn_df(load_data(uploaded))
@@ -35,10 +47,12 @@ except Exception as exc:
     st.error(f"Could not load data: {exc}")
     st.stop()
 
+churn_rate = float(df["Exited"].mean())
 k1, k2, k3 = st.columns(3)
 k1.metric("Customers", f"{len(df):,}")
-k2.metric("Churn rate", f"{df['Exited'].mean():.1%}")
+k2.metric("Churn rate", f"{churn_rate:.1%}")
 k3.metric("Churned", f"{int(df['Exited'].sum()):,}")
+st.markdown(interpret_churn_rate(churn_rate))
 
 
 @st.cache_resource(show_spinner="Training models (first visit ~15–25s on Cloud)…")
@@ -70,81 +84,80 @@ rf_pred, nn_pred = (rf_proba >= 0.5).astype(int), (nn_proba >= 0.5).astype(int)
 
 rf_auc = roc_auc_score(yt, rf_proba)
 nn_auc = roc_auc_score(yt, nn_proba)
+rf_f1 = f1_score(yt, rf_pred, zero_division=0)
+nn_f1 = f1_score(yt, nn_pred, zero_division=0)
 agreement = (rf_pred == nn_pred).mean()
 
-st.success("Models ready — RF and Neural Net trained on holdout split below.")
+rf_auc_x = interpret_auc(rf_auc)
+nn_auc_x = interpret_auc(nn_auc)
 
-cards = [
-    {
-        "icon": "🎯",
-        "title": "Model parity",
-        "body": f"RF AUC **{rf_auc:.3f}** · NN AUC **{nn_auc:.3f}** — both rank churn risk similarly.",
-        "tone": "positive",
-    },
-    {
-        "icon": "🤝",
-        "title": "Agreement",
-        "body": f"**{agreement:.0%}** of holdout customers get the same class from both models.",
-        "tone": "neutral",
-    },
-    {
-        "icon": "📊",
-        "title": "Live demo",
-        "body": "Use **Live predict** with preset profiles or **Batch** to export dual scores.",
-        "tone": "neutral",
-    },
-]
-html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.75rem;margin:1rem 0;">'
-for c in cards:
-    border = {"positive": "#22c55e", "warning": "#f59e0b", "neutral": "#8b5cf6"}.get(c["tone"], "#8b5cf6")
-    html += (
-        f'<div style="background:#fff;border:1px solid #e2e8f0;border-left:4px solid {border};'
-        f'border-radius:10px;padding:0.9rem 1rem;"><small>{c["icon"]} {c["title"]}</small>'
-        f'<div style="margin-top:0.35rem;font-size:0.92rem;">{c["body"]}</div></div>'
-    )
-html += "</div>"
-st.markdown(html, unsafe_allow_html=True)
+st.markdown("### Executive summary")
+st.markdown(
+    compare_models(rf_auc, nn_auc)
+    + " "
+    + interpret_agreement(agreement)
+)
+c1, c2 = st.columns(2)
+with c1:
+    st.info(rf_auc_x["summary"])
+with c2:
+    st.info(nn_auc_x["summary"])
 
 t1, t2, t3 = st.tabs(["📊 Model compare", "🎯 Live predict", "📦 Batch"])
 
 with t1:
+    st.markdown(
+        "We hold back **20% of customers** the models never saw during training, then measure "
+        "how well each model predicts who actually churned (`Exited = 1`)."
+    )
+
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("RF AUC", f"{rf_auc:.3f}")
-    m2.metric("NN AUC", f"{nn_auc:.3f}")
-    m3.metric("RF F1", f"{f1_score(yt, rf_pred, zero_division=0):.3f}")
-    m4.metric("NN F1", f"{f1_score(yt, nn_pred, zero_division=0):.3f}")
+    m1.metric("RF AUC", f"{rf_auc:.3f}", help="Random Forest ranking quality")
+    m2.metric("NN AUC", f"{nn_auc:.3f}", help="Neural Net ranking quality")
+    m3.metric("RF F1", f"{rf_f1:.3f}", help="RF at 50% risk cutoff")
+    m4.metric("NN F1", f"{nn_f1:.3f}", help="NN at 50% risk cutoff")
+
+    with st.expander("What do these numbers mean?", expanded=True):
+        st.markdown(rf_auc_x["detail"])
+        st.markdown(nn_auc_x["detail"])
+        st.markdown(interpret_f1(rf_f1)["detail"])
+        st.markdown(f"**Model agreement:** {interpret_agreement(agreement)}")
 
     cmp = pd.DataFrame({
         "Model": ["Random Forest", "Neural Net"],
         "AUC": [rf_auc, nn_auc],
-        "F1": [f1_score(yt, rf_pred, zero_division=0), f1_score(yt, nn_pred, zero_division=0)],
+        "F1": [rf_f1, nn_f1],
     })
-    c1, c2 = st.columns(2)
-    with c1:
-        st.plotly_chart(px.bar(cmp, x="Model", y="AUC", title="Holdout AUC", text_auto=".3f"), use_container_width=True)
-    with c2:
-        st.plotly_chart(px.bar(cmp, x="Model", y="F1", title="Holdout F1", text_auto=".3f"), use_container_width=True)
+    ch1, ch2 = st.columns(2)
+    with ch1:
+        st.plotly_chart(px.bar(cmp, x="Model", y="AUC", title="Holdout AUC (higher = better ranking)", text_auto=".3f"), use_container_width=True)
+    with ch2:
+        st.plotly_chart(px.bar(cmp, x="Model", y="F1", title="Holdout F1 (threshold 50%)", text_auto=".3f"), use_container_width=True)
 
     cm_rf = confusion_matrix(yt, rf_pred)
     cm_nn = confusion_matrix(yt, nn_pred)
+    st.markdown(confusion_narrative(cm_rf, "Random Forest"))
+    st.markdown(confusion_narrative(cm_nn, "Neural Net"))
+
     cc1, cc2 = st.columns(2)
     with cc1:
-        st.plotly_chart(
-            px.imshow(cm_rf, text_auto=True, title="RF confusion matrix", color_continuous_scale="Blues"),
-            use_container_width=True,
-        )
+        st.plotly_chart(px.imshow(cm_rf, text_auto=True, title="RF confusion matrix", color_continuous_scale="Blues"), use_container_width=True)
+        st.caption("Rows/columns: Predicted Stay/Churn vs Actual Stay/Churn")
     with cc2:
-        st.plotly_chart(
-            px.imshow(cm_nn, text_auto=True, title="NN confusion matrix", color_continuous_scale="Purples"),
-            use_container_width=True,
-        )
+        st.plotly_chart(px.imshow(cm_nn, text_auto=True, title="NN confusion matrix", color_continuous_scale="Purples"), use_container_width=True)
 
-    st.caption(
-        "Metrics are on a 20% holdout set. F1 uses a 0.5 threshold; "
-        "on imbalanced churn data, AUC is often the better headline metric."
+    st.markdown("#### Recommended use")
+    st.markdown(
+        "- **Prioritize outreach** using **AUC** and **Ensemble_Prob** (top 10–20% risk), not only the 50% yes/no flags.  \n"
+        "- **Random Forest** for explainability in meetings; **Neural Net** as a corroborating score.  \n"
+        "- Re-train when you upload a new CSV or click **Retrain** after material business changes."
     )
 
 with t2:
+    st.markdown(
+        "Enter a customer profile (or pick a demo). The models output **probability of churn** — "
+        "the chance they leave in a similar way to past churners in your data."
+    )
     profile = st.selectbox("Demo profile", ["Custom"] + list(DEMO_PROFILES.keys()))
     c1, c2 = st.columns(2)
     defaults = DEMO_PROFILES.get(profile, LIVE_FEATURE_DEFAULTS) if profile != "Custom" else LIVE_FEATURE_DEFAULTS
@@ -159,20 +172,27 @@ with t2:
     with c2:
         row["Balance"] = st.number_input("Balance", 0.0, 300000.0, float(row["Balance"]))
         row["EstimatedSalary"] = st.number_input("Salary", 0.0, 200000.0, float(row["EstimatedSalary"]))
+
     if st.button("Predict churn risk", type="primary", use_container_width=True):
         X = pd.DataFrame([row]).reindex(columns=art["X_train_cols"], fill_value=0)
         rp = float(rf.predict_proba(X)[0, 1])
         np_ = float(nn_predict_proba(nn, pre.transform(X))[0])
-        avg = (rp + np_) / 2
-        st.metric("Ensemble risk (avg)", f"{avg:.1%}")
+        live = interpret_live_risk(rp, np_)
+        st.metric("Ensemble risk (avg)", f"{live['avg']:.1%}")
         g1, g2 = st.columns(2)
-        g1.metric("Random Forest", f"{rp:.1%}")
-        g2.metric("Neural Net", f"{np_:.1%}")
-        risk_label = "High" if avg >= 0.5 else "Low"
-        st.info(f"**{risk_label} churn risk** — use with retention playbooks in your CRM.")
+        g1.metric("Random Forest says", f"{rp:.1%}", help="Chance of churn according to RF")
+        g2.metric("Neural Net says", f"{np_:.1%}", help="Chance of churn according to NN")
+        st.success(live["summary"])
+        with st.expander("Full explanation"):
+            st.markdown(live["detail"])
+            st.markdown(f"**Suggested action:** {live['playbook']}")
 
 with t3:
-    st.write("Upload a CSV with the same columns as the training file (including **Exited** if present).")
+    st.markdown(
+        "Score many customers at once. Export the file and sort by **Ensemble_Prob** "
+        "to build your retention call list."
+    )
+    st.markdown(batch_export_help())
     f = st.file_uploader("Batch CSV", type=["csv"])
     if f and st.button("Score batch", type="primary"):
         b = prepare_churn_df(pd.read_csv(f))
@@ -182,6 +202,11 @@ with t3:
         b["Ensemble_Prob"] = (b["RF_Prob"] + b["NN_Prob"]) / 2
         b["RF_Churn"] = (b["RF_Prob"] >= 0.5).astype(int)
         b["NN_Churn"] = (b["NN_Prob"] >= 0.5).astype(int)
+        high = int((b["Ensemble_Prob"] >= 0.5).sum())
+        st.markdown(
+            f"**{high:,} customers ({high/len(b):.1%})** scored at or above 50% ensemble risk — "
+            f"candidates for retention; consider contacting the **top 10%** first for best ROI."
+        )
         st.dataframe(b.head(50), use_container_width=True, hide_index=True)
         st.download_button("Export all scores", b.to_csv(index=False).encode(), "dual_scores.csv", type="primary")
 
