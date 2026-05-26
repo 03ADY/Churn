@@ -1,4 +1,6 @@
-models/
+models/*
+!models/.gitkeep
+!models/*.joblib
 __pycache__/
 .venv/
 venv/
