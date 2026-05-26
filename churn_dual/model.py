@@ -13,6 +13,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.utils.class_weight import compute_class_weight
 
+from churn_dual.cloud import is_streamlit_cloud
 from churn_dual.features import expected_columns_from_preprocessor, prepare_churn_df
 
 MODEL_DIR = Path(__file__).resolve().parent.parent / "models"
@@ -21,9 +22,35 @@ NN_PATH = MODEL_DIR / "nn_mlp.joblib"
 PREP_PATH = MODEL_DIR / "preprocessor.joblib"
 FEATURES_PATH = MODEL_DIR / "feature_columns.json"
 
+# Cap training rows on Cloud for faster cold start
+_CLOUD_TRAIN_CAP = 4000
+
 
 def nn_predict_proba(nn: MLPClassifier, X: np.ndarray) -> np.ndarray:
     return nn.predict_proba(X)[:, 1]
+
+
+def _training_subset(df: pd.DataFrame) -> pd.DataFrame:
+    if is_streamlit_cloud() and len(df) > _CLOUD_TRAIN_CAP:
+        return df.sample(_CLOUD_TRAIN_CAP, random_state=42)
+    return df
+
+
+def _try_load_cached(df: pd.DataFrame) -> dict | None:
+    if not (RF_PATH.exists() and NN_PATH.exists() and PREP_PATH.exists()):
+        return None
+    try:
+        rf = joblib.load(RF_PATH)
+        nn = joblib.load(NN_PATH)
+        prep = joblib.load(PREP_PATH)
+    except Exception:
+        # numpy / sklearn version mismatch between build and Cloud runtime
+        return None
+    expected = _load_feature_columns(prep)
+    current = df.drop("Exited", axis=1).columns.tolist()
+    if set(expected) != set(current):
+        return None
+    return _pack(df, rf, nn, prep, cached=True, feature_cols=expected)
 
 
 def train_dual(df: pd.DataFrame, *, use_cache: bool = True) -> dict | None:
@@ -31,21 +58,18 @@ def train_dual(df: pd.DataFrame, *, use_cache: bool = True) -> dict | None:
     if "Exited" not in df.columns:
         return None
 
-    if use_cache and RF_PATH.exists() and NN_PATH.exists() and PREP_PATH.exists():
-        rf = joblib.load(RF_PATH)
-        nn = joblib.load(NN_PATH)
-        prep = joblib.load(PREP_PATH)
-        expected = _load_feature_columns(prep)
-        current = df.drop("Exited", axis=1).columns.tolist()
-        if set(expected) == set(current):
-            return _pack(df, rf, nn, prep, cached=True, feature_cols=expected)
-        # Schema changed (e.g. after feature prep update) — retrain below
+    # Bundled joblib often breaks across numpy versions (e.g. Py 3.13 on Cloud)
+    if use_cache and not is_streamlit_cloud():
+        cached = _try_load_cached(df)
+        if cached is not None:
+            return cached
 
-    if len(df) < 50 or df["Exited"].nunique() < 2:
+    train_df = _training_subset(df)
+    if len(train_df) < 50 or train_df["Exited"].nunique() < 2:
         return None
 
-    X = df.drop("Exited", axis=1)
-    y = df["Exited"]
+    X = train_df.drop("Exited", axis=1)
+    y = train_df["Exited"]
     cat = X.select_dtypes(include=["object", "string"]).columns.tolist()
     num = X.select_dtypes(include=np.number).columns.tolist()
     pre = ColumnTransformer([
@@ -65,12 +89,13 @@ def train_dual(df: pd.DataFrame, *, use_cache: bool = True) -> dict | None:
     cw = compute_class_weight("balanced", classes=classes, y=y_train)
     cw_dict = {int(classes[0]): float(cw[0]), int(classes[1]): float(cw[1])}
 
+    n_trees = 50 if is_streamlit_cloud() else 80
     rf_best = Pipeline([
         ("preprocessor", pre),
         (
             "classifier",
             RandomForestClassifier(
-                n_estimators=80,
+                n_estimators=n_trees,
                 max_depth=10,
                 random_state=42,
                 class_weight=cw_dict,
@@ -85,20 +110,22 @@ def train_dual(df: pd.DataFrame, *, use_cache: bool = True) -> dict | None:
     nn = MLPClassifier(
         hidden_layer_sizes=(48, 24),
         activation="relu",
-        max_iter=120,
+        max_iter=80 if is_streamlit_cloud() else 120,
         random_state=42,
     )
     nn.fit(Xtr, y_train)
 
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    feature_cols = X_train.columns.tolist()
-    joblib.dump(rf_best, RF_PATH)
-    joblib.dump(fitted_pre, PREP_PATH)
-    joblib.dump(nn, NN_PATH)
-    FEATURES_PATH.write_text(__import__("json").dumps(feature_cols), encoding="utf-8")
+    if not is_streamlit_cloud():
+        MODEL_DIR.mkdir(parents=True, exist_ok=True)
+        feature_cols = X_train.columns.tolist()
+        joblib.dump(rf_best, RF_PATH)
+        joblib.dump(fitted_pre, PREP_PATH)
+        joblib.dump(nn, NN_PATH)
+        FEATURES_PATH.write_text(__import__("json").dumps(feature_cols), encoding="utf-8")
+
     return _pack(
         df, rf_best, nn, fitted_pre, cached=False,
-        X_test=X_test, y_test=y_test, X_train=X_train, feature_cols=feature_cols,
+        X_test=X_test, y_test=y_test, X_train=X_train, feature_cols=X_train.columns.tolist(),
     )
 
 

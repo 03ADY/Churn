@@ -32,10 +32,10 @@ st.metric("Customers", len(df))
 st.metric("Churn rate", f"{df['Exited'].mean():.1%}")
 
 
-@st.cache_resource(show_spinner="Training models (first visit may take ~30s)…")
+@st.cache_resource(show_spinner="Training models (first visit ~15–25s on Cloud)…")
 def get_models(_data_hash: str, data: pd.DataFrame):
     del _data_hash  # cache key only
-    return train_dual(data)
+    return train_dual(data, use_cache=True)
 
 
 data_hash = f"{len(df)}-{df['Exited'].sum()}"
@@ -44,7 +44,7 @@ try:
         art = get_models(data_hash, df)
 except Exception as exc:
     st.error(f"Model training failed: {exc}")
-    st.info("Try uploading a CSV with an **Exited** column, or use **Retrain** after fixing data.")
+    st.info("Try **Retrain** in the sidebar, or upload a CSV with an **Exited** column.")
     st.stop()
 
 if not art:
