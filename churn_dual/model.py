@@ -1,28 +1,32 @@
-"""Dual-model churn: Random Forest + Neural Network."""
+"""Dual-model churn: Random Forest + MLP neural network (scikit-learn, cloud-friendly)."""
 
 from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
-import tensorflow as tf
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import GridSearchCV, train_test_split
+from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.utils.class_weight import compute_class_weight
 
 MODEL_DIR = Path(__file__).resolve().parent.parent / "models"
 RF_PATH = MODEL_DIR / "rf_pipeline.joblib"
-NN_PATH = MODEL_DIR / "nn_model.keras"
+NN_PATH = MODEL_DIR / "nn_mlp.joblib"
 PREP_PATH = MODEL_DIR / "preprocessor.joblib"
+
+
+def nn_predict_proba(nn: MLPClassifier, X: np.ndarray) -> np.ndarray:
+    return nn.predict_proba(X)[:, 1]
 
 
 def train_dual(df: pd.DataFrame, *, use_cache: bool = True) -> dict | None:
     if use_cache and RF_PATH.exists() and NN_PATH.exists() and PREP_PATH.exists():
         rf = joblib.load(RF_PATH)
-        nn = tf.keras.models.load_model(NN_PATH)
+        nn = joblib.load(NN_PATH)
         prep = joblib.load(PREP_PATH)
         return _pack(df, rf, nn, prep, cached=True)
 
@@ -50,25 +54,32 @@ def train_dual(df: pd.DataFrame, *, use_cache: bool = True) -> dict | None:
         ("preprocessor", pre),
         ("classifier", RandomForestClassifier(random_state=42, class_weight=cw_dict)),
     ])
-    rf_grid = GridSearchCV(rf_pipe, {"classifier__n_estimators": [100, 200], "classifier__max_depth": [5, 10]}, cv=3, scoring="roc_auc", n_jobs=1)
+    rf_grid = GridSearchCV(
+        rf_pipe,
+        {"classifier__n_estimators": [100, 200], "classifier__max_depth": [5, 10]},
+        cv=3,
+        scoring="roc_auc",
+        n_jobs=1,
+    )
     rf_grid.fit(X_train, y_train)
     rf_best = rf_grid.best_estimator_
 
     Xtr = pre.fit_transform(X_train)
     Xte = pre.transform(X_test)
-    nn = tf.keras.Sequential([
-        tf.keras.layers.Dense(64, activation="relu", input_shape=(Xtr.shape[1],)),
-        tf.keras.layers.Dropout(0.3),
-        tf.keras.layers.Dense(32, activation="relu"),
-        tf.keras.layers.Dense(1, activation="sigmoid"),
-    ])
-    nn.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
-    nn.fit(Xtr, y_train, epochs=40, batch_size=32, validation_data=(Xte, y_test), verbose=0, class_weight=cw_dict)
+    nn = MLPClassifier(
+        hidden_layer_sizes=(64, 32),
+        activation="relu",
+        max_iter=400,
+        random_state=42,
+        early_stopping=True,
+        validation_fraction=0.15,
+    )
+    nn.fit(Xtr, y_train)
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump(rf_best, RF_PATH)
     joblib.dump(pre, PREP_PATH)
-    nn.save(NN_PATH)
+    joblib.dump(nn, NN_PATH)
     return _pack(df, rf_best, nn, pre, cached=False, X_test=X_test, y_test=y_test, X_train=X_train)
 
 

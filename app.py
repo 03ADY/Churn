@@ -6,7 +6,7 @@ import streamlit as st
 from sklearn.metrics import roc_auc_score, accuracy_score, f1_score
 
 from churn_dual.data import load_data
-from churn_dual.model import train_dual
+from churn_dual.model import nn_predict_proba, train_dual
 
 st.set_page_config(page_title="ChurnGuard Enterprise", page_icon="🛡️", layout="wide")
 st.markdown("""
@@ -39,7 +39,7 @@ Xt, yt = art["X_test"], art["y_test"]
 Xtp = pre.transform(Xt)
 
 rf_proba = rf.predict_proba(Xt)[:, 1]
-nn_proba = nn.predict(Xtp).ravel()
+nn_proba = nn_predict_proba(nn, Xtp)
 rf_pred, nn_pred = (rf_proba >= 0.5).astype(int), (nn_proba >= 0.5).astype(int)
 
 t1, t2, t3 = st.tabs(["📊 Model compare", "🎯 Live predict", "📦 Batch"])
@@ -71,7 +71,7 @@ with t2:
     if st.button("Predict", type="primary"):
         X = pd.DataFrame([row]).reindex(columns=art["X_train_cols"], fill_value=0)
         rp = rf.predict_proba(X)[0, 1]
-        np_ = nn.predict(pre.transform(X)).ravel()[0]
+        np_ = float(nn_predict_proba(nn, pre.transform(X))[0])
         st.success(f"RF churn risk: **{rp:.1%}** · NN churn risk: **{np_:.1%}**")
 
 with t3:
@@ -80,7 +80,7 @@ with t3:
         b = pd.read_csv(f)
         X = b.reindex(columns=art["X_train_cols"], fill_value=0)
         b["RF_Prob"] = rf.predict_proba(X)[:, 1]
-        b["NN_Prob"] = nn.predict(pre.transform(X)).ravel()
+        b["NN_Prob"] = nn_predict_proba(nn, pre.transform(X))
         st.dataframe(b, use_container_width=True)
         st.download_button("Export", b.to_csv(index=False).encode(), "dual_scores.csv")
 
