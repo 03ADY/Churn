@@ -20,15 +20,18 @@ from churn_dual.explain import (
 )
 from churn_dual.features import DEMO_PROFILES, LIVE_FEATURE_DEFAULTS, align_features, prepare_churn_df
 from churn_dual.model import nn_predict_proba, train_dual
+from churn_dual.theme import hero_html, inject_theme, style_fig
 
 st.set_page_config(page_title="ChurnGuard Enterprise", page_icon="🛡️", layout="wide")
-
-st.markdown("""
-<div style="background:linear-gradient(135deg,#7c3aed,#db2777);padding:1.5rem 2rem;border-radius:14px;color:white;">
-<h1 style="margin:0;">🛡️ ChurnGuard Enterprise</h1>
-<p style="margin:0.4rem 0 0;">Random Forest + Neural Net · Explained metrics · Live & batch scoring</p>
-</div>
-""", unsafe_allow_html=True)
+inject_theme()
+st.markdown(
+    hero_html(
+        "ChurnGuard Enterprise",
+        "Random Forest + Neural Net · Explained metrics · Live & batch scoring",
+        "🛡️",
+    ),
+    unsafe_allow_html=True,
+)
 
 with st.sidebar:
     st.markdown("### 🎬 Demo")
@@ -153,9 +156,9 @@ with t1:
     })
     ch1, ch2 = st.columns(2)
     with ch1:
-        st.plotly_chart(px.bar(cmp, x="Model", y="AUC", title="Holdout AUC (higher = better ranking)", text_auto=".3f"), use_container_width=True)
+        st.plotly_chart(style_fig(px.bar(cmp, x="Model", y="AUC", title="Holdout AUC (higher = better ranking)", text_auto=".3f")), use_container_width=True)
     with ch2:
-        st.plotly_chart(px.bar(cmp, x="Model", y="F1", title="Holdout F1 (threshold 50%)", text_auto=".3f"), use_container_width=True)
+        st.plotly_chart(style_fig(px.bar(cmp, x="Model", y="F1", title="Holdout F1 (threshold 50%)", text_auto=".3f")), use_container_width=True)
 
     cm_rf = confusion_matrix(yt, rf_pred)
     cm_nn = confusion_matrix(yt, nn_pred)
@@ -167,10 +170,10 @@ with t1:
 
     cc1, cc2 = st.columns(2)
     with cc1:
-        st.plotly_chart(px.imshow(cm_rf, text_auto=True, title="RF confusion matrix", color_continuous_scale="Blues"), use_container_width=True)
+        st.plotly_chart(style_fig(px.imshow(cm_rf, text_auto=True, title="RF confusion matrix", color_continuous_scale="Blues")), use_container_width=True)
         st.caption("Rows/columns: Predicted Stay/Churn vs Actual Stay/Churn")
     with cc2:
-        st.plotly_chart(px.imshow(cm_nn, text_auto=True, title="NN confusion matrix", color_continuous_scale="Purples"), use_container_width=True)
+        st.plotly_chart(style_fig(px.imshow(cm_nn, text_auto=True, title="NN confusion matrix", color_continuous_scale="Purples")), use_container_width=True)
 
     st.markdown("#### Recommended use")
     st.markdown(
