@@ -26,10 +26,24 @@ div[data-testid="stMetric"] {
 }
 div[data-testid="stMetric"] label { color: #94a3b8 !important; font-size: 0.78rem !important; }
 div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: #f8fafc !important; }
-div[data-testid="stSidebar"] {
-  background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%) !important;
-  border-right: 1px solid rgba(148, 163, 184, 0.12);
+section[data-testid="stSidebar"], div[data-testid="stSidebar"], [data-testid="stSidebarContent"],
+[data-testid="stSidebarUserContent"], [data-testid="stSidebarNav"] {
+  background-color: #0f172a !important;
+  background-image: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%) !important;
+  color: #f1f5f9 !important;
 }
+[data-testid="stSidebar"] p, [data-testid="stSidebar"] label, [data-testid="stSidebar"] span,
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p, [data-testid="stSidebar"] .stCaption,
+[data-testid="stSidebarNav"] a, [data-testid="stSidebarNav"] span { color: #e2e8f0 !important; }
+[data-testid="stSidebarNav"] a[aria-current="page"] { color: #a855f7 !important; font-weight: 600 !important; }
+[data-testid="stSidebar"] input, [data-testid="stSidebar"] [data-baseweb="select"] > div {
+  background-color: #1e293b !important; color: #f8fafc !important;
+}
+[data-testid="stSidebar"] .stButton > button {
+  background: linear-gradient(135deg, ACCENT_A, ACCENT_B) !important; color: #fff !important;
+}
+[data-testid="stSidebar"] .stRadio label p { color: #e2e8f0 !important; }
 .stTabs [data-baseweb="tab-list"] { gap: 6px; background: transparent; }
 .stTabs [data-baseweb="tab"] {
   border-radius: 10px; padding: 0.5rem 1rem; font-weight: 500;
