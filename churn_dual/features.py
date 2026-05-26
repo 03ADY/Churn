@@ -39,3 +39,24 @@ LIVE_FEATURE_DEFAULTS = {
     "IsActiveMember": 1,
     "EstimatedSalary": 75000.0,
 }
+
+DEMO_PROFILES = {
+    "High-risk customer": {
+        "CreditScore": 520,
+        "Geography": "Germany",
+        "Gender": "Female",
+        "Age": 62,
+        "Tenure": 1,
+        "Balance": 120000.0,
+        "EstimatedSalary": 45000.0,
+    },
+    "Loyal active member": {
+        "CreditScore": 780,
+        "Geography": "France",
+        "Gender": "Male",
+        "Age": 34,
+        "Tenure": 8,
+        "Balance": 95000.0,
+        "EstimatedSalary": 110000.0,
+    },
+}
