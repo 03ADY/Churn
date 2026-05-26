@@ -17,6 +17,7 @@ def interpret_auc(auc: float) -> dict:
     return {
         "level": level,
         "tone": tone,
+        "meaning": meaning,
         "summary": f"**{level}** discriminator (AUC {auc:.2f}). {meaning}",
         "detail": (
             "**AUC (Area Under the ROC Curve)** measures how well the model orders customers from "
@@ -38,6 +39,7 @@ def interpret_f1(f1: float) -> dict:
         meaning = "Hard trade-off at 50% cutoff; consider top-decile targeting instead of yes/no flags."
     return {
         "level": level,
+        "meaning": meaning,
         "summary": f"**{level}** F1 ({f1:.2f}). {meaning}",
         "detail": (
             "**F1** balances precision (of flagged churners, how many actually leave) and "
@@ -69,6 +71,59 @@ def interpret_churn_rate(rate: float) -> str:
         f"**{rate:.1%} of customers in this file churned** (left the bank). "
         "That is your historical baseline — retention programs should aim to **reduce this rate** "
         "among high-value segments, not eliminate all predicted risk."
+    )
+
+
+def holdout_metric_cards(rf_auc: float, nn_auc: float, rf_f1: float, nn_f1: float) -> dict:
+    """Single AUC/F1 narratives when RF and NN are close; split when they diverge."""
+    auc_diff = abs(rf_auc - nn_auc)
+    f1_diff = abs(rf_f1 - nn_f1)
+    avg_auc = (rf_auc + nn_auc) / 2
+    auc_interp = interpret_auc(avg_auc)
+    rf_f1_x = interpret_f1(rf_f1)
+    nn_f1_x = interpret_f1(nn_f1)
+
+    if auc_diff < 0.02:
+        auc_summary = (
+            f"**Both models — {auc_interp['level'].lower()} ranking** "
+            f"(RF AUC {rf_auc:.2f}, NN AUC {nn_auc:.2f}). {auc_interp['meaning']}"
+        )
+        auc_detail_once = auc_interp["detail"]
+    else:
+        auc_summary = None
+        auc_detail_once = None
+
+    if f1_diff < 0.05:
+        f1_summary = (
+            f"**At 50% cutoff** — RF F1 {rf_f1:.2f}, NN F1 {nn_f1:.2f}. {rf_f1_x['meaning']}"
+        )
+        f1_detail_once = rf_f1_x["detail"]
+    else:
+        f1_summary = None
+        f1_detail_once = None
+
+    return {
+        "auc_combined": auc_diff < 0.02,
+        "auc_summary": auc_summary,
+        "auc_detail_once": auc_detail_once,
+        "rf_auc_x": interpret_auc(rf_auc),
+        "nn_auc_x": interpret_auc(nn_auc),
+        "f1_combined": f1_diff < 0.05,
+        "f1_summary": f1_summary,
+        "f1_detail_once": f1_detail_once,
+        "rf_f1_x": rf_f1_x,
+        "nn_f1_x": nn_f1_x,
+    }
+
+
+def confusion_compare_note(rf_auc: float, nn_auc: float, rf_f1: float, nn_f1: float) -> str:
+    if abs(rf_auc - nn_auc) >= 0.02 or abs(rf_f1 - nn_f1) < 0.03:
+        return ""
+    better = "Random Forest" if rf_f1 >= nn_f1 else "Neural Net"
+    return (
+        f"**Why do the confusion matrices differ?** AUC is almost the same, but **F1 uses a fixed 50% cutoff**. "
+        f"**{better}** catches more churners at that cutoff (higher F1); the other is more conservative (fewer false alarms). "
+        "For campaigns, rank by probability and contact the **top 10–20%**, not everyone above 50%."
     )
 
 

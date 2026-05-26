@@ -10,12 +10,12 @@ from churn_dual.data import load_data
 from churn_dual.explain import (
     batch_export_help,
     compare_models,
+    confusion_compare_note,
     confusion_narrative,
     glossary_markdown,
+    holdout_metric_cards,
     interpret_agreement,
-    interpret_auc,
     interpret_churn_rate,
-    interpret_f1,
     interpret_live_risk,
 )
 from churn_dual.features import DEMO_PROFILES, LIVE_FEATURE_DEFAULTS, align_features, prepare_churn_df
@@ -88,8 +88,7 @@ rf_f1 = f1_score(yt, rf_pred, zero_division=0)
 nn_f1 = f1_score(yt, nn_pred, zero_division=0)
 agreement = (rf_pred == nn_pred).mean()
 
-rf_auc_x = interpret_auc(rf_auc)
-nn_auc_x = interpret_auc(nn_auc)
+cards = holdout_metric_cards(rf_auc, nn_auc, rf_f1, nn_f1)
 
 st.markdown("### Executive summary")
 st.markdown(
@@ -97,11 +96,22 @@ st.markdown(
     + " "
     + interpret_agreement(agreement)
 )
-c1, c2 = st.columns(2)
-with c1:
-    st.info(rf_auc_x["summary"])
-with c2:
-    st.info(nn_auc_x["summary"])
+if cards["auc_combined"]:
+    st.info(cards["auc_summary"])
+else:
+    c1, c2 = st.columns(2)
+    with c1:
+        st.info(cards["rf_auc_x"]["summary"])
+    with c2:
+        st.info(cards["nn_auc_x"]["summary"])
+if cards["f1_combined"]:
+    st.caption(cards["f1_summary"])
+else:
+    f1a, f1b = st.columns(2)
+    with f1a:
+        st.caption(cards["rf_f1_x"]["summary"])
+    with f1b:
+        st.caption(cards["nn_f1_x"]["summary"])
 
 t1, t2, t3 = st.tabs(["📊 Model compare", "🎯 Live predict", "📦 Batch"])
 
@@ -118,9 +128,22 @@ with t1:
     m4.metric("NN F1", f"{nn_f1:.3f}", help="NN at 50% risk cutoff")
 
     with st.expander("What do these numbers mean?", expanded=True):
-        st.markdown(rf_auc_x["detail"])
-        st.markdown(nn_auc_x["detail"])
-        st.markdown(interpret_f1(rf_f1)["detail"])
+        if cards["auc_combined"]:
+            st.markdown(cards["auc_detail_once"])
+        else:
+            st.markdown(cards["rf_auc_x"]["detail"])
+            st.markdown(
+                f"**Random Forest** AUC {rf_auc:.3f}: {cards['rf_auc_x']['summary']}  \n"
+                f"**Neural Net** AUC {nn_auc:.3f}: {cards['nn_auc_x']['summary']}"
+            )
+        if cards["f1_combined"]:
+            st.markdown(cards["f1_detail_once"])
+        else:
+            st.markdown(cards["rf_f1_x"]["detail"])
+            st.markdown(
+                f"**RF F1** {rf_f1:.3f}: {cards['rf_f1_x']['summary']}  \n"
+                f"**NN F1** {nn_f1:.3f}: {cards['nn_f1_x']['summary']}"
+            )
         st.markdown(f"**Model agreement:** {interpret_agreement(agreement)}")
 
     cmp = pd.DataFrame({
@@ -136,6 +159,9 @@ with t1:
 
     cm_rf = confusion_matrix(yt, rf_pred)
     cm_nn = confusion_matrix(yt, nn_pred)
+    note = confusion_compare_note(rf_auc, nn_auc, rf_f1, nn_f1)
+    if note:
+        st.markdown(note)
     st.markdown(confusion_narrative(cm_rf, "Random Forest"))
     st.markdown(confusion_narrative(cm_nn, "Neural Net"))
 
